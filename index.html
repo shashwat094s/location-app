@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Multi-User Live Location Sharing</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: linear-gradient(to right, #a1c4fd, #c2e9fb);
+      text-align: center;
+    }
+
+    #map {
+      height: 75vh;
+      width: 90%;
+      margin: 20px auto;
+      border: 2px solid #333;
+      border-radius: 10px;
+    }
+
+    .controls {
+      margin-top: 10px;
+    }
+
+    button {
+      margin: 5px;
+      padding: 12px 24px;
+      font-size: 16px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    #status {
+      font-size: 16px;
+      margin-top: 10px;
+    }
+  </style>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+</head>
+<body>
+
+  <h2>🌍 Multi-User Live Location Sharing</h2>
+  <div class="controls">
+    <button onclick="startSharing()">Start Sharing</button>
+    <button onclick="stopSharing()">Stop Sharing</button>
+  </div>
+  <p id="status">Click "Start Sharing" to share your live location.</p>
+  <div id="map"></div>
+
+  <script>
+    // 🔧 Replace with your actual Firebase configuration
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+      databaseURL: "https://YOUR_PROJECT_ID.firebaseio.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT_ID.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // Generate a random user ID
+    const userId = 'user-' + Math.random().toString(36).substr(2, 9);
+
+    let map, marker, watchId;
+    let routeCoords = [];
+    let routeLine;
+    const userMarkers = {};
+
+    function startSharing() {
+      if (watchId) return;
+
+      if (!navigator.geolocation) {
+        alert("Geolocation is not supported by your browser.");
+        return;
+      }
+
+      document.getElementById("status").innerText = "Getting your location...";
+
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          updateMap(latitude, longitude);
+          document.getElementById("status").innerText =
+            `Sharing location: Lat ${latitude.toFixed(5)}, Lon ${longitude.toFixed(5)}`;
+
+          // Send location to Firebase
+          firebase.database().ref('locations/' + userId).set({
+            lat: latitude,
+            lon: longitude,
+            timestamp: Date.now()
+          });
+        },
+        (error) => {
+          alert("Error getting location: " + error.message);
+          document.getElementById("status").innerText = "Failed to get location.";
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 1000,
+          timeout: 5000,
+        }
+      );
+    }
+
+    function stopSharing() {
+      if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+        document.getElementById("status").innerText = "Stopped sharing your location.";
+        firebase.database().ref('locations/' + userId).remove();
+      }
+    }
+
+    function updateMap(lat, lon) {
+      const coords = [lat, lon];
+      routeCoords.push(coords);
+
+      if (!map) {
+        map = L.map("map").setView(coords, 15);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        marker = L.marker(coords).addTo(map)
+          .bindPopup(`📍 You<br>Lat: ${lat.toFixed(5)}<br>Lon: ${lon.toFixed(5)}`).openPopup();
+
+        routeLine = L.polyline(routeCoords, { color: 'blue' }).addTo(map);
+      } else {
+        marker.setLatLng(coords)
+          .bindPopup(`📍 You<br>Lat: ${lat.toFixed(5)}<br>Lon: ${lon.toFixed(5)}`).openPopup();
+        map.setView(coords);
+        routeLine.setLatLngs(routeCoords);
+      }
+    }
+
+    // Listen to all users' locations
+    firebase.database().ref('locations').on('value', (snapshot) => {
+      const users = snapshot.val();
+      for (let uid in users) {
+        const { lat, lon } = users[uid];
+
+        if (uid === userId) continue; // Skip your own marker (already handled)
+
+        if (!userMarkers[uid]) {
+          userMarkers[uid] = L.marker([lat, lon]).addTo(map)
+            .bindPopup(`🧑 User: ${uid}<br>Lat: ${lat.toFixed(5)}<br>Lon: ${lon.toFixed(5)}`);
+        } else {
+          userMarkers[uid].setLatLng([lat, lon])
+            .bindPopup(`🧑 User: ${uid}<br>Lat: ${lat.toFixed(5)}<br>Lon: ${lon.toFixed(5)}`);
+        }
+      }
+    });
+  </script>
+</body>
+</html>
