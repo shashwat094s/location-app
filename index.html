@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>Multi-User Live Location Sharing</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
@@ -15,16 +15,35 @@
       text-align: center;
     }
 
+    /* Watermark styling */
+    .watermark {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      font-size: 18px;
+      font-weight: bold;
+      color: rgba(0, 0, 0, 0.4);
+      z-index: 1000;
+      pointer-events: none;
+      user-select: none;
+    }
+
     #map {
-      height: 75vh;
-      width: 90%;
+      height: 50vh; /* Adjust map height for smaller devices */
+      width: 100%;
       margin: 20px auto;
       border: 2px solid #333;
       border-radius: 10px;
+      box-sizing: border-box; /* Ensure it adapts within its parent container */
+    }
+
+    h2 {
+      font-size: 2rem; /* Make heading responsive */
+      margin-top: 20px;
     }
 
     .controls {
-      margin-top: 10px;
+      margin-top: 20px;
     }
 
     button {
@@ -37,6 +56,7 @@
       border-radius: 8px;
       cursor: pointer;
       transition: background 0.3s ease;
+      width: 200px; /* Make buttons wider for mobile screens */
     }
 
     button:hover {
@@ -46,6 +66,41 @@
     #status {
       font-size: 16px;
       margin-top: 10px;
+    }
+
+    /* Media queries for responsiveness */
+    @media (max-width: 768px) {
+      h2 {
+        font-size: 1.5rem;
+      }
+
+      #map {
+        height: 60vh; /* Adjust map height for smaller screens */
+      }
+
+      button {
+        width: 80%; /* Button width adjusted for smaller screens */
+        font-size: 14px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      h2 {
+        font-size: 1.25rem;
+      }
+
+      #map {
+        height: 50vh; /* Further adjust map height */
+      }
+
+      button {
+        width: 90%; /* Buttons take more space on small screens */
+        font-size: 14px;
+      }
+
+      .controls {
+        margin-top: 15px;
+      }
     }
   </style>
 
@@ -58,6 +113,8 @@
 </head>
 <body>
 
+  <div class="watermark">Shashwat Pandey</div>
+
   <h2>🌍 Multi-User Live Location Sharing</h2>
   <div class="controls">
     <button onclick="startSharing()">Start Sharing</button>
@@ -67,7 +124,6 @@
   <div id="map"></div>
 
   <script>
-    // 🔧 Replace with your actual Firebase configuration
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
       authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
@@ -81,7 +137,6 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // Generate a random user ID
     const userId = 'user-' + Math.random().toString(36).substr(2, 9);
 
     let map, marker, watchId;
@@ -106,8 +161,7 @@
           document.getElementById("status").innerText =
             `Sharing location: Lat ${latitude.toFixed(5)}, Lon ${longitude.toFixed(5)}`;
 
-          // Send location to Firebase
-          firebase.database().ref('locations/' + userId).set({
+          db.ref('locations/' + userId).set({
             lat: latitude,
             lon: longitude,
             timestamp: Date.now()
@@ -130,7 +184,7 @@
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
         document.getElementById("status").innerText = "Stopped sharing your location.";
-        firebase.database().ref('locations/' + userId).remove();
+        db.ref('locations/' + userId).remove();
       }
     }
 
@@ -152,18 +206,20 @@
       } else {
         marker.setLatLng(coords)
           .bindPopup(`📍 You<br>Lat: ${lat.toFixed(5)}<br>Lon: ${lon.toFixed(5)}`).openPopup();
-        map.setView(coords);
+        map.panTo(coords);
         routeLine.setLatLngs(routeCoords);
       }
     }
 
     // Listen to all users' locations
-    firebase.database().ref('locations').on('value', (snapshot) => {
-      const users = snapshot.val();
+    db.ref('locations').on('value', (snapshot) => {
+      const users = snapshot.val() || {};
+      const activeUserIds = new Set(Object.keys(users));
+
       for (let uid in users) {
         const { lat, lon } = users[uid];
 
-        if (uid === userId) continue; // Skip your own marker (already handled)
+        if (uid === userId) continue;
 
         if (!userMarkers[uid]) {
           userMarkers[uid] = L.marker([lat, lon]).addTo(map)
@@ -173,6 +229,14 @@
             .bindPopup(`🧑 User: ${uid}<br>Lat: ${lat.toFixed(5)}<br>Lon: ${lon.toFixed(5)}`);
         }
       }
+
+      // Remove inactive users' markers
+      Object.keys(userMarkers).forEach(uid => {
+        if (!activeUserIds.has(uid)) {
+          map.removeLayer(userMarkers[uid]);
+          delete userMarkers[uid];
+        }
+      });
     });
   </script>
 </body>
